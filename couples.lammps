@@ -1,0 +1,138 @@
+#Definicion de loops
+variable 		imax equal 4
+variable 		i loop 4 ${imax}
+label 			start_of_loop1
+print 			"ITERATION i = $i"    #Loop de epsilon
+
+
+variable 		jmax equal 1
+variable 		j loop 1 ${jmax}
+label 			start_of_loop2
+print 			"ITERATION j = $j"    # Loop de condiciones iniciales
+
+variable 		kmax equal 1
+variable 		k loop 1 ${kmax}
+label 			start_of_loop3
+print 			"ITERATION k = $k"    # Loop de velocidades
+
+################## Definicion de variables geometricas ################## 
+variable 		side equal 20
+variable 		doorsize equal 0.92 
+
+variable 		x0 equal 0.0
+variable 		x1 equal v_side
+variable 		x2 equal v_x1+0.12
+variable 		x3 equal v_x1+v_side
+
+variable 		y0 equal 0.0
+variable 		y1 equal (v_side/2.0)-(v_doorsize/2.0)  # Parenthesis required in divisions
+variable 		y2 equal (v_side/2.0)+(v_doorsize/2.0)
+variable 		y3 equal v_side
+
+variable 		z1 equal -1
+variable 		z2 equal 1
+
+################## Creacion de la "simulation box"  ################## 
+
+dimension       2
+boundary        f f p
+units           si
+atom_style      sphere
+
+region          inside block ${x0} ${x1} ${y0} ${y3} ${z1} ${z2} units box
+region          outside block ${x2} ${x3} ${y0} ${y3} ${z1} ${z2} units box
+region          exit block ${x1} ${x2} ${y1} ${y2} ${z1} ${z2} units box
+region          allregions  union 3 inside exit outside
+region          borrar1 block ${x1} ${x2} ${y0} ${y1} ${z1} ${z2} units box
+region          borrar2 block ${x1} ${x2} ${y2} ${y3} ${z1} ${z2} units box
+region          borrar  union 3 borrar1 borrar2 outside
+
+
+
+create_box      113 allregions
+read_data		CI_225_112_2_1.txt add append
+
+
+
+################## Caracteristicas de las particulas  ################## 
+set             atom * mass 70.0
+set             atom * diameter 0.46
+velocity        all create 1e23 $k dist gaussian	
+comm_modify     vel yes           
+variable		vd equal 4.0
+variable		logeps equal $i
+variable		epsilon equal 10^${logeps}
+variable		quedaron equal count(all,inside)
+
+################## Especificacion de las fuerzas de las particulas  ################## 
+
+pair_style   	 hybrid/overlay panic/table linear 5000 ${vd} panic/table/couples linear 5000 ${epsilon}
+pair_coeff   	 * * panic/table repulsion.table PP 0.88
+pair_coeff   	 * * panic/table/couples attraction.table PP 1.6
+#pair_style   	 hybrid/overlay panic/table/diam/distribution linear 5000 ${vd} panic/table/couples linear 5000 ${epsilon}
+#pair_coeff   	 * * panic/table/diam/distribution repulsion.table PP 0.88
+#pair_coeff   	 * * panic/table/couples attraction.table PP 1.6
+
+################## CLUSTER ANALYSIS #####################
+
+
+compute 	 1 all dijkstra/atom ${y2} ${y1} ${x1} 6 #el ultimo es el radio
+
+variable  	 c atom c_1>0.0
+
+group		myatoms dynamic all var c
+variable 		ind atom ${quedaron}
+variable 		tiempo atom 0
+
+
+################## Video ################## 
+dump        	1 all movie 500 evacuacion_parejas.mp4 type type &
+axes no 0.8 0.02 view 0 0 zoom 6 adiam 0.46 center s 0.4 0.5 0.5
+
+dump        	2 all movie 500 evacuacion_dijstra.mp4 c_1 type &
+           	axes no 0.8 0.02 view 0 0 zoom 6 adiam 0.46 center s 0.4 0.5 0.5
+
+#dump 		vis all noheader 500 dump_vis.txt id type x y c_1 v_tiempo
+#dump_modify vis append yes			
+
+#dump 		vmd all custom 500 dump_vmd.lammpstrj x y z vx vy vz
+#dump_modify vmd append yes			
+
+
+################## Integracion numerica ################## 
+fix           	1 all nve/limit 0.001
+timestep      	0.0001
+
+variable 	  	nmax equal 40000
+variable 	 	n loop ${nmax}
+label 		  	start_of_loop
+
+run           	500
+#delete_atoms  	region borrar compress no
+variable      	t equal 0.05*$n
+variable        tiempo atom $t
+
+if				"$n > ${nmax}" then "jump SELF break"
+if 				"${quedaron} < 120" then "jump SELF break"
+next 			n
+#print 			"i = $i  --  j = $j  --  k = $k"    #Loop de epsilon
+jump 			SELF start_of_loop
+label 			break
+
+################## Output y reseteo ################## 
+#print 			"$i $j $k $t " append output.txt
+
+clear
+variable 		n delete
+
+
+next 			k
+jump 			SELF start_of_loop3
+
+clear
+next 			j
+jump 			SELF start_of_loop2
+
+clear
+next 			i
+jump 			SELF start_of_loop1
